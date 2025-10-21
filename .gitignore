@@ -1,0 +1,9 @@
+
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/parking_planner.iml
+.idea/vcs.xml
+__pycache__/
+data/training_data.pkl
+results/
