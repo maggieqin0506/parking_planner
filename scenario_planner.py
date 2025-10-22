@@ -1,5 +1,5 @@
 """
-Scenario planner using Hybrid A*
+Scenario planner with node tracking
 """
 import numpy as np
 from vehicle import Vehicle
@@ -12,23 +12,30 @@ class ScenarioPlanner:
         self.vehicle = Vehicle()
         
     def plan(self, start, goal, scenario_type=None, scs=None):
-        """Planning using Hybrid A* with fixed heuristic"""
+        """Planning with node count tracking"""
         start_time = time.time()
         
         is_parallel = scenario_type if scenario_type is not None else False
         
-        # Use Hybrid A* with FIXED heuristic (paper's method)
+        # Use Hybrid A* with paper's fixed heuristic
         from hybrid_astar import HybridAStar
         planner = HybridAStar(self.env, use_neural=False)
-        path, _, _, success = planner.plan(start, goal, is_parallel, scs or 1.5)
+        result = planner.plan(start, goal, is_parallel, scs or 1.5)
+        
+        # Unpack results (now includes node counts)
+        if len(result) == 6:
+            path, _, _, success, nodes_gen, nodes_exp = result
+        else:
+            path, _, _, success = result
+            nodes_gen, nodes_exp = 0, 0
         
         comp_time = (time.time() - start_time) * 1000
         
         if success and path:
             path_length = self._compute_path_length(path)
-            return path, comp_time, path_length, True
+            return path, comp_time, path_length, True, nodes_gen, nodes_exp
         
-        return None, comp_time, 0, False
+        return None, comp_time, 0, False, nodes_gen, nodes_exp
     
     def _compute_path_length(self, path):
         """Compute total path length"""

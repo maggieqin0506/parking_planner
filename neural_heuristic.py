@@ -1,122 +1,127 @@
 """
-Neural network heuristic function - FIXED VERSION
+Neural heuristic - FIXED VERSION
+关键修复：推理时应用与训练相同的归一化
 """
 import torch
 import torch.nn as nn
 import numpy as np
-from config import Config
-import os
 
 class NeuralHeuristic(nn.Module):
-    def __init__(self, input_size=11, hidden_size=Config.nn_hidden_size):  # ← 改为11
-        super(NeuralHeuristic, self).__init__()
-        
+    """Neural network for learned heuristic"""
+    
+    def __init__(self):
+        super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
+            nn.Linear(11, 128),
             nn.LeakyReLU(0.2),
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(128, 128),
             nn.LeakyReLU(0.2),
-            nn.Linear(hidden_size, hidden_size // 2),
+            nn.Linear(128, 64),
             nn.LeakyReLU(0.2),
-            nn.Linear(hidden_size // 2, 1),
-            nn.ReLU()  # 确保非负输出
+            nn.Linear(64, 1)
         )
-        
+    
     def forward(self, x):
         return self.network(x)
+
+def load_trained_model(model_path='models/neural_heuristic.pth'):
+    """
+    Load trained model (returns raw PyTorch model)
+    For backward compatibility - use create_neural_heuristic() instead
+    """
+    model = NeuralHeuristic()
+    model.load_state_dict(torch.load(model_path, map_location='cpu'))
+    model.eval()
+    
+    # 计算模型大小
+    param_size = sum(p.numel() * p.element_size() for p in model.parameters())
+    buffer_size = sum(b.numel() * b.element_size() for b in model.buffers())
+    size_mb = (param_size + buffer_size) / (1024 * 1024)
+    print(f"✓ Loaded trained model from {model_path} ({size_mb:.1f} KB)")
+    
+    return model
+
+class NeuralHeuristicWrapper:
+    """
+    Wrapper for neural heuristic with proper normalization
+    
+    关键修复：确保推理时使用与训练相同的归一化
+    """
+    
+    def __init__(self, model):
+        self.model = model
+        self.model.eval()
     
     def predict(self, current_state, goal_state, rs_distance, vehicle_params, scs, is_parallel):
         """
-        Predict cost-to-go
-        Input features (11 total):
-          1-2:  delta_x, delta_y
-          3-4:  sin(delta_theta), cos(delta_theta)
-          5:    reed_shepp_distance
-          6-9:  E_l, E_w, E_wb, phi_max (vehicle params)
-          10:   SCS (environment constraint)
-          11:   is_parallel (scenario type)
+        预测cost-to-go
+        
+        参数与训练时必须完全一致！
         """
+        # 计算特征
         dx = goal_state[0] - current_state[0]
         dy = goal_state[1] - current_state[1]
         dtheta = goal_state[2] - current_state[2]
         
-        # Normalize angle difference to [-π, π]
+        # 角度归一化
         while dtheta > np.pi:
             dtheta -= 2 * np.pi
         while dtheta < -np.pi:
             dtheta += 2 * np.pi
         
-        # Construct feature vector (11 features)
+        # 处理vehicle_params（支持字典和列表）
+        if isinstance(vehicle_params, dict):
+            E_l = vehicle_params['E_l']
+            E_w = vehicle_params['E_w']
+            E_wb = vehicle_params['E_wb']
+            phi_max = vehicle_params['phi_max']
+        elif isinstance(vehicle_params, (list, tuple)):
+            E_l = vehicle_params[0]
+            E_w = vehicle_params[1]
+            E_wb = vehicle_params[2]
+            phi_max = vehicle_params[3]
+        else:
+            from config import Config
+            E_l = Config.E_l
+            E_w = Config.E_w
+            E_wb = Config.E_wb
+            phi_max = Config.phi_max
+        
+        # 构建特征向量（与训练时顺序完全一致）
         features = np.array([
-            dx,
-            dy,
-            np.sin(dtheta),
-            np.cos(dtheta),
+            dx, dy,
+            np.sin(dtheta), np.cos(dtheta),
             rs_distance,
-            vehicle_params[0],  # E_l
-            vehicle_params[1],  # E_w
-            vehicle_params[2],  # E_wb
-            vehicle_params[3],  # phi_max
+            E_l, E_w, E_wb, phi_max,
             scs,
-            float(is_parallel)
+            1.0 if is_parallel else 0.0
         ], dtype=np.float32)
         
-        # Normalize features
-        features_normalized = self._normalize_features(features)
+        # ====== 关键修复：应用与训练相同的归一化 ======
+        # 这必须与 train_nn.py 的 ParkingDataset.__init__ 完全一致！
+        features[0:2] /= 15.0      # dx, dy
+        features[4] /= 20.0         # rs_distance
+        features[5:9] /= 5.0        # vehicle params
+        features[9] /= 2.0          # scs
         
-        # Predict
+        # 转换为tensor并预测
         with torch.no_grad():
-            x = torch.FloatTensor(features_normalized).unsqueeze(0)
-            cost = self.network(x).item()
+            features_tensor = torch.FloatTensor(features).unsqueeze(0)
+            prediction = self.model(features_tensor).item()
         
-        return max(0.1, cost)  # Ensure positive and non-zero
-    
-    def _normalize_features(self, features):
-        """Normalize features to similar scales"""
-        normalized = features.copy()
-        normalized[0:2] /= 15.0   # Position: normalize by environment size
-        normalized[4] /= 20.0     # RS distance
-        normalized[5:9] /= 5.0    # Vehicle parameters
-        normalized[9] /= 2.0      # SCS
-        # features[10] (is_parallel) is already 0 or 1, no normalization needed
-        return normalized
+        # 确保预测值为正
+        prediction = max(0.0, prediction)
+        
+        # 确保预测值不小于RS距离（admissibility）
+        prediction = max(prediction, rs_distance * 0.8)
+        
+        return prediction
 
-def load_trained_model(model_path='models/neural_heuristic.pth'):
-    """Load trained neural network model with detailed error reporting"""
+def create_neural_heuristic(model_path='models/neural_heuristic.pth'):
+    """
+    创建神经网络启发式函数
     
-    # Check if file exists
-    if not os.path.exists(model_path):
-        print(f"⚠️  Model file not found: {model_path}")
-        print(f"   Current directory: {os.getcwd()}")
-        if os.path.exists('models'):
-            print(f"   Files in models/: {os.listdir('models')}")
-        else:
-            print(f"   models/ directory does not exist")
-        print(f"\n   Solution: Run 'python train_nn.py' to train the model")
-        print(f"   Using untrained model for now...")
-        return NeuralHeuristic()
-    
-    # Load model
-    model = NeuralHeuristic()
-    try:
-        # Load state dict
-        state_dict = torch.load(model_path, map_location=torch.device('cpu'))
-        model.load_state_dict(state_dict)
-        model.eval()
-        
-        # Get file size
-        file_size = os.path.getsize(model_path) / 1024  # KB
-        print(f"✓ Loaded trained model from {model_path} ({file_size:.1f} KB)")
-        return model
-        
-    except RuntimeError as e:
-        print(f"❌ Error loading model: {e}")
-        print(f"   This usually means the model architecture has changed")
-        print(f"\n   Solution: Retrain the model with 'python train_nn.py'")
-        print(f"   Using untrained model for now...")
-        return NeuralHeuristic()
-        
-    except Exception as e:
-        print(f"❌ Unexpected error loading model: {e}")
-        print(f"   Using untrained model for now...")
-        return NeuralHeuristic()
+    返回一个可以直接用于Hybrid A*的wrapper
+    """
+    model = load_trained_model(model_path)
+    return NeuralHeuristicWrapper(model)
