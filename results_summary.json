@@ -1,0 +1,70 @@
+[
+  {
+    "scenario": "Parallel Parking (Paper Table II)",
+    "paper_method": {
+      "success": true,
+      "comp_time": 173.9521026611328,
+      "path_length": 15.093042740348615,
+      "nodes_generated": 472,
+      "nodes_expanded": 388
+    },
+    "neural": {
+      "success": true,
+      "comp_time": 171.17977142333984,
+      "path_length": 13.893318183047157,
+      "nodes_generated": 404,
+      "nodes_expanded": 322
+    }
+  },
+  {
+    "scenario": "Perpendicular Parking (Paper Table II)",
+    "paper_method": {
+      "success": true,
+      "comp_time": 1279.7060012817383,
+      "path_length": 13.84101993827135,
+      "nodes_generated": 3218,
+      "nodes_expanded": 2251
+    },
+    "neural": {
+      "success": true,
+      "comp_time": 1218.0752754211426,
+      "path_length": 13.84101993827135,
+      "nodes_generated": 2741,
+      "nodes_expanded": 1853
+    }
+  },
+  {
+    "scenario": "Narrow Parallel (SCS=1.2)",
+    "paper_method": {
+      "success": true,
+      "comp_time": 184.57579612731934,
+      "path_length": 15.681581442320338,
+      "nodes_generated": 492,
+      "nodes_expanded": 417
+    },
+    "neural": {
+      "success": true,
+      "comp_time": 157.01699256896973,
+      "path_length": 13.192967472078141,
+      "nodes_generated": 388,
+      "nodes_expanded": 296
+    }
+  },
+  {
+    "scenario": "Narrow Perpendicular (SCS=1.15)",
+    "paper_method": {
+      "success": true,
+      "comp_time": 505.92589378356934,
+      "path_length": 12.03723263714678,
+      "nodes_generated": 1383,
+      "nodes_expanded": 672
+    },
+    "neural": {
+      "success": true,
+      "comp_time": 487.3971939086914,
+      "path_length": 12.03723263714678,
+      "nodes_generated": 1204,
+      "nodes_expanded": 567
+    }
+  }
+]

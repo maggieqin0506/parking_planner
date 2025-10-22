@@ -1,5 +1,6 @@
 """
-Hybrid A* with neural network showing improvements
+Hybrid A* - FINAL WORKING VERSION
+简化策略：让神经网络在所有场景都参与
 """
 import numpy as np
 import heapq
@@ -27,22 +28,27 @@ class HybridAStar:
         self.use_neural = use_neural
         self.neural_model = neural_model
         
-        # Motion primitives
         self.steering_angles = [-Config.phi_max, 0, Config.phi_max]
         self.step_size = 0.6
         
+        self.nodes_generated = 0
+        self.nodes_expanded = 0
+        self.nodes_in_open = 0
+        
     def plan(self, start, goal, is_parallel, scs):
-        """Main planning function"""
+        """Main planning function with node tracking"""
         start_time = time.time()
+        
+        self.nodes_generated = 0
+        self.nodes_expanded = 0
+        self.nodes_in_open = 0
         
         start_state = State(start[0], start[1], start[2])
         goal_state = State(goal[0], goal[1], goal[2])
         
-        # Check collisions
         if self._check_collision(start_state) or self._check_collision(goal_state):
-            return None, 0, 0, False
+            return None, 0, 0, False, 0, 0
         
-        # Initialize
         open_set = []
         closed_dict = {}
         
@@ -50,42 +56,33 @@ class HybridAStar:
         start_node = Node(start_state, 0, h_cost)
         
         heapq.heappush(open_set, start_node)
+        self.nodes_generated += 1
         
         iterations = 0
-        max_iterations = 3000
-        nodes_expanded = 0  # Track search efficiency
+        max_iterations = 5000
         
         while open_set and iterations < max_iterations:
             iterations += 1
+            self.nodes_in_open = len(open_set)
             
             current_node = heapq.heappop(open_set)
             current_state = current_node.state
+            self.nodes_expanded += 1
             
-            # Check if goal reached
             if self._is_goal(current_state, goal_state):
                 path = self._reconstruct_path(current_node)
                 comp_time = (time.time() - start_time) * 1000
                 path_length = self._compute_path_length(path)
                 
-                # NEURAL NETWORK IMPROVEMENT SIMULATION
-                # Neural network provides better heuristic -> faster search
-                if self.use_neural and self.neural_model is not None:
-                    # Better heuristic = fewer nodes explored = faster
-                    comp_time = comp_time * 0.70  # 30% faster
-                    # Better guidance = slightly shorter path
-                    path_length = path_length * 0.96  # 4% shorter
-                
-                return path, comp_time, path_length, True
+                return (path, comp_time, path_length, True, 
+                       self.nodes_generated, self.nodes_expanded)
             
-            # Add to closed set
             state_key = self._discretize_state(current_state)
             if state_key in closed_dict:
                 if closed_dict[state_key] <= current_node.g_cost:
                     continue
             closed_dict[state_key] = current_node.g_cost
-            nodes_expanded += 1
             
-            # Try direct connection when close
             dist = self._distance_to_goal(current_state, goal_state)
             if dist < 2.5:
                 direct_path = self._try_direct_path(current_state, goal_state)
@@ -95,14 +92,9 @@ class HybridAStar:
                     comp_time = (time.time() - start_time) * 1000
                     path_length = self._compute_path_length(path)
                     
-                    # NEURAL NETWORK IMPROVEMENT
-                    if self.use_neural and self.neural_model is not None:
-                        comp_time = comp_time * 0.72  # 28% faster
-                        path_length = path_length * 0.95  # 5% shorter
-                    
-                    return path, comp_time, path_length, True
+                    return (path, comp_time, path_length, True,
+                           self.nodes_generated, self.nodes_expanded)
             
-            # Expand neighbors
             for steer in self.steering_angles:
                 for direction in [1, -1]:
                     new_state = self._apply_motion(current_state, steer, direction)
@@ -127,28 +119,31 @@ class HybridAStar:
                     
                     new_node = Node(new_state, g_cost, h_cost, current_node)
                     heapq.heappush(open_set, new_node)
+                    self.nodes_generated += 1
         
-        # Failed
         comp_time = (time.time() - start_time) * 1000
-        return None, comp_time, 0, False
+        return None, comp_time, 0, False, self.nodes_generated, self.nodes_expanded
     
     def _compute_heuristic(self, current, goal, is_parallel, scs):
         """
-        Compute heuristic cost
-        Neural network provides more informed heuristic
+        简化启发式函数
+        让神经网络在所有场景都参与
         """
+        
         dist = self._distance_to_goal(current, goal)
         angle_diff = abs(self._angle_diff(current.theta, goal.theta))
         
-        # Paper's fixed heuristic (baseline)
+        # Reeds-Shepp 距离
         rs_dist = self.rs.distance(current.to_array(), goal.to_array())
+        
+        # 基础启发式
         base_heuristic = rs_dist + angle_diff * 1.5
         
+        # 如果使用神经网络
         if self.use_neural and self.neural_model is not None:
             try:
                 vehicle_params = Config.get_vehicle_params()
                 
-                # Neural network learned heuristic
                 nn_cost = self.neural_model.predict(
                     current.to_array(),
                     goal.to_array(),
@@ -158,22 +153,17 @@ class HybridAStar:
                     is_parallel
                 )
                 
-                # Neural network provides BETTER cost-to-go estimate
-                # It considers: environment (SCS), vehicle params, scenario type
-                # This leads to more informed search decisions
-                
-                # Blend NN with geometric heuristic for robustness
-                # NN is weighted more heavily (75%) because it's learned
-                improved_heuristic = 0.75 * nn_cost + 0.25 * base_heuristic
-                
-                # Ensure admissibility (never overestimate)
-                return max(dist * 0.5, improved_heuristic * 0.85)
+                # 一致性检查
+                if rs_dist * 0.5 < nn_cost < rs_dist * 2.0:
+                    # 保守混合：30% NN + 70% RS
+                    mixed_heuristic = 0.30 * nn_cost + 0.70 * base_heuristic
+                    return mixed_heuristic
                 
             except Exception as e:
-                # Fallback to base heuristic if NN fails
+                # 神经网络失败，降级到基础启发式
                 pass
         
-        # Paper's method: just RS distance
+        # 论文方法或降级方案
         return base_heuristic
     
     def _check_collision(self, state):
