@@ -1,7 +1,4 @@
-"""
-Environment - FINAL WORKING VERSION
-修复: 目标位置需要向后移动，避免与侧边车辆碰撞
-"""
+
 import numpy as np
 from config import Config
 
@@ -38,7 +35,6 @@ class Environment:
                     self.occupancy_grid[i, j] = 1
     
     def create_parallel_parking_scenario(self, scs=1.6):
-        """平行泊车 - 已验证工作"""
         self.occupancy_grid = np.zeros((self.grid_width, self.grid_height))
         self.obstacles = []
         
@@ -65,63 +61,39 @@ class Environment:
         return (init_x, init_y, init_theta), (goal_x, goal_y, goal_theta), True
     
     def create_perpendicular_parking_scenario(self, scs=1.4):
-        """
-        垂直泊车 - 最终修复版本
-        
-        关键发现：
-        - 目标车辆垂直放置（theta=90°）时，车辆长度方向是Y轴
-        - 需要确保目标Y坐标留出足够空间，避免车辆前后端碰撞
-        """
+
         self.occupancy_grid = np.zeros((self.grid_width, self.grid_height))
         self.obstacles = []
         
         parking_width = scs * Config.E_w
-        
-        # ====== 关键修复：障碍物放置在前方 ======
-        # 左右两侧车辆的Y坐标应该在停车位"前方"
-        # 这样目标车辆可以停在它们"后面"
-        
+
         parking_area_x = 8.0
         
-        # 左侧车辆 - 垂直放置，在停车位前方
         left_car_x = parking_area_x - parking_width/2 - Config.E_w/2
-        left_car_y = 4.0  # 停车位前方
+        left_car_y = 4.0
         self.add_obstacle(left_car_x, left_car_y, Config.E_w, Config.E_l, theta=np.pi/2)
         
-        # 右侧车辆
         right_car_x = parking_area_x + parking_width/2 + Config.E_w/2
         right_car_y = 4.0
         self.add_obstacle(right_car_x, right_car_y, Config.E_w, Config.E_l, theta=np.pi/2)
         
-        # ====== 起点：在停车位前方的通道 ======
         init_x = parking_area_x
         init_y = 10.0
         init_theta = 0.0
-        
-        # ====== 目标：停车位中心 ======
-        # 目标车辆垂直放置，车头朝前（theta=90°）
-        # 车辆中心应该在障碍物后方足够远的位置
-        
-        # 计算安全的目标Y坐标
-        # 左/右车辆的后端位置
+
         obstacle_rear_y = left_car_y - Config.E_l/2
         
-        # 目标车辆的前端应该在障碍物后端之后至少0.3米
         safety_margin = 0.3
         goal_vehicle_front_y = obstacle_rear_y - safety_margin
         
-        # 目标车辆中心 = 前端 - 车长/2
         goal_y = goal_vehicle_front_y - Config.E_l/2
         goal_x = parking_area_x
         goal_theta = np.pi / 2
         
-        # ====== 边界安全检查 ======
         min_y_boundary = 1.0
         if goal_y - Config.E_l/2 < min_y_boundary:
-            # 调整整个布局
             adjustment = min_y_boundary - (goal_y - Config.E_l/2) + 0.5
             
-            # 重新创建环境
             self.occupancy_grid = np.zeros((self.grid_width, self.grid_height))
             self.obstacles = []
             

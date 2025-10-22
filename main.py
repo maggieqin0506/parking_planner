@@ -39,8 +39,7 @@ def run_single_experiment(env, start, goal, is_parallel, scs, neural_model):
         'nodes_generated': nodes_gen_paper,
         'nodes_expanded': nodes_exp_paper
     }
-    
-    # === 神经网络方法 ===
+
     print("  Running neural network method...")
     neural_planner = HybridAStar(env, use_neural=True, neural_model=neural_model)
     result_neural = neural_planner.plan(start, goal, is_parallel, scs)
