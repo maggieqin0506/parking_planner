@@ -20,7 +20,6 @@ def run_single_experiment(env, start, goal, is_parallel, scs, neural_model):
         'neural': {}
     }
     
-    # === 论文方法 ===
     print("  Running paper's method...")
     scenario_planner = ScenarioPlanner(env)
     result_paper = scenario_planner.plan(start, goal, is_parallel, scs)
